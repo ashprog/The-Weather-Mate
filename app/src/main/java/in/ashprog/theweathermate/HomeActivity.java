@@ -1,60 +1,83 @@
 package in.ashprog.theweathermate;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.location.Address;
-import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
+import com.android.volley.NetworkError;
+import com.android.volley.NoConnectionError;
+import com.android.volley.ParseError;
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.TimeoutError;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
 import com.github.mikephil.charting.animation.Easing;
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.sothree.slidinguppanel.SlidingUpPanelLayout;
 
-import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
-import java.util.Locale;
+
+import in.ashprog.theweathermate.ForecastModel.ForecastData;
+import in.ashprog.theweathermate.ForecastModel.Hour;
 
 public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLayout.PanelSlideListener, LocationListener {
+
+    private static String latLong = "25.4358,81.8463";
+    private static String API = "http://api.weatherapi.com/v1/forecast.json?key=81fe6ba1f71e48dabc9120751212201&q=" + latLong + "&days=1";
 
     LocationManager locationManager;
     LocationListener locationListener;
     private SlidingUpPanelLayout slidingUpPanelLayout;
     private LineChart lineChart;
-    private TextView tempTV, timeTV, cityTV;
+    List<Hour> hourList;
     private LinearLayout layout1, layout2, layout3;
+    ForecastAdapter forecastAdapter;
     private int[] tempTV_loc;
     private int[] layout1_loc;
     private int[] layout2_loc;
     private int[] layout3_loc;
-    private String cityName;
+    private TextView tempTV, timeTV, cityTV, weatherTV, latLngTV;
+    private RecyclerView recyclerView;
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 10, locationListener);
+            updateLocation();
         }
 
     }
@@ -68,15 +91,13 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
 
         setSlidingUpPanelLayout();
 
-        timeTV.setText(new SimpleDateFormat("EEE, h:mm a").format(Calendar.getInstance().getTime()));
+        updateTime();
 
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 101);
-        } else {
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 10, locationListener);
-        }
+        checkLocationPermission();
 
-        graph();
+        updateGraph(new ArrayList<Entry>());
+
+        recyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false));
     }
 
     @Override
@@ -95,9 +116,12 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
         tempTV = findViewById(R.id.tempTV);
         timeTV = findViewById(R.id.timeTV);
         cityTV = findViewById(R.id.cityTV);
+        weatherTV = findViewById(R.id.weatherTV);
+        latLngTV = findViewById(R.id.latLngTV);
         layout1 = findViewById(R.id.layout1);
         layout2 = findViewById(R.id.layout2);
         layout3 = findViewById(R.id.layout3);
+        recyclerView = findViewById(R.id.recyclerView);
 
         tempTV_loc = new int[2];
         layout1_loc = new int[2];
@@ -131,17 +155,11 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
         slidingUpPanelLayout.addPanelSlideListener(this);
     }
 
-    void graph() {
-        List<Entry> entries = new ArrayList<Entry>();
-        entries.add(new Entry(10, 20));
-        entries.add(new Entry(15, 17));
-        entries.add(new Entry(23, 42));
-        entries.add(new Entry(40, 50));
-        entries.add(new Entry(45, 60));
+    void updateGraph(List<Entry> entries) {
 
-        LineDataSet dataSet = new LineDataSet(entries, "Label"); // add entries to dataset
-        dataSet.setColor(Color.WHITE);
-        dataSet.setValueTextColor(Color.WHITE); // styling, ...
+        LineDataSet dataSet = new LineDataSet(entries, "Weather"); // add entries to dataSet
+        dataSet.setColor(Color.WHITE); //styling dataSet
+        dataSet.setValueTextColor(Color.WHITE);
         dataSet.setValueTextSize(8f);
         dataSet.setDrawFilled(true);
         dataSet.setFillColor(Color.WHITE);
@@ -149,8 +167,11 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
         dataSet.setDrawCircles(true);
         dataSet.setCircleColor(Color.WHITE);
         dataSet.setCircleRadius(5f);
+
         LineData lineData = new LineData(dataSet);
         lineChart.setData(lineData);
+
+        //styling chart
         lineChart.setTouchEnabled(false);
         lineChart.setClickable(false);
         lineChart.setDoubleTapToZoomEnabled(false);
@@ -168,23 +189,81 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
         lineChart.getAxisRight().setDrawGridLines(false);
         lineChart.getAxisRight().setDrawLabels(false);
         lineChart.getAxisRight().setDrawAxisLine(false);
-        lineChart.animateXY(5000, 2000, Easing.EaseInOutBack, Easing.EaseInOutBack);
+        lineChart.animateXY(3000, 3000, Easing.EaseInOutBack, Easing.EaseInOutBack);
     }
 
-    @Override
-    public void onPanelSlide(View panel, float slideOffset) {
-        tempTV.setX(tempTV_loc[0] + slideOffset * (getScreenWidth() / 2 - tempTV.getWidth() / 2));
-        tempTV.setY(tempTV_loc[1] - slideOffset * 100);
-
-        layout1.setX(layout1_loc[0] - slideOffset * (getScreenWidth() / 2 - layout1.getWidth() / 2));
-        layout2.setX(layout2_loc[0] - slideOffset * (getScreenWidth() / 2 - layout2.getWidth() / 2));
-        layout3.setX(layout3_loc[0] - slideOffset * (getScreenWidth() / 2 - layout3.getWidth() / 2));
-        layout3.setY(layout3_loc[1] - slideOffset * 250);
+    void checkLocationPermission() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 101);
+        } else {
+            updateLocation();
+        }
     }
 
-    @Override
-    public void onPanelStateChanged(View panel, SlidingUpPanelLayout.PanelState previousState, SlidingUpPanelLayout.PanelState newState) {
+    @SuppressLint("MissingPermission")
+    void updateLocation() {
+        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            Toast.makeText(this, "Please enable the location services.", Toast.LENGTH_SHORT).show();
+        } else {
+            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000, 10, locationListener);
+        }
+    }
 
+    void updateTime() {
+        final Handler mHandler = new Handler(Looper.getMainLooper());
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                timeTV.setText(new SimpleDateFormat("EEE, h:mm a").format(Calendar.getInstance().getTime()));
+                mHandler.postDelayed(this, 1000);
+            }
+        });
+    }
+
+    void fetchForecastData(Location location) {
+        latLong = location.getLatitude() + "," + location.getLongitude();
+        StringRequest request = new StringRequest(Request.Method.GET, API, new Response.Listener<String>() {
+            @Override
+            public void onResponse(String response) {
+                GsonBuilder builder = new GsonBuilder();
+                Gson gson = builder.create();
+                ForecastData forecastDataList = gson.fromJson(response, ForecastData.class);
+
+                cityTV.setText(forecastDataList.getLocation().getName());
+                tempTV.setText(forecastDataList.getCurrent().getTempC() + "°");
+                weatherTV.setText(forecastDataList.getCurrent().getCondition().getText());
+                latLngTV.setText(forecastDataList.getLocation().getLat().toString() + "°," + forecastDataList.getLocation().getLon().toString() + "°");
+
+                hourList = forecastDataList.getForecast().getForecastday().get(0).getHour();
+
+                //update Graph
+                List<Entry> entries = new ArrayList<>();
+                for (int i = 0; i < hourList.size() / 2; i++)
+                    entries.add(new Entry(hourList.get(i).getTimeEpoch(), hourList.get(i).getTempC().floatValue()));
+                updateGraph(entries);
+
+                //update recyclerView
+                forecastAdapter = new ForecastAdapter(HomeActivity.this, hourList);
+                recyclerView.setAdapter(forecastAdapter);
+
+            }
+        }, new Response.ErrorListener() {
+            @Override
+            public void onErrorResponse(VolleyError error) {
+                if (error instanceof TimeoutError) {
+                    Log.d("TAG", "onErrorResponse: TimeoutError");
+                } else if (error instanceof NoConnectionError) {
+                    Log.d("TAG", "onErrorResponse: NoConnectionError");
+                } else if (error instanceof NetworkError) {
+                    Log.d("TAG", "onErrorResponse: NetworkError");
+                } else if (error instanceof ParseError) {
+                    Log.d("TAG", "onErrorResponse: ParseError");
+                }
+            }
+        });
+
+        RequestQueue queue = Volley.newRequestQueue(this);
+        queue.add(request);
     }
 
     int getScreenWidth() {
@@ -194,16 +273,23 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
     }
 
     @Override
+    public void onPanelSlide(View panel, float slideOffset) {
+        tempTV.setX(tempTV_loc[0] + slideOffset * (getScreenWidth() / 2f - tempTV.getWidth()));
+        tempTV.setY(tempTV_loc[1] - slideOffset * 100);
+        layout1.setX(layout1_loc[0] - slideOffset * (getScreenWidth() / 2f - layout1.getWidth() / 2f));
+        layout2.setX(layout2_loc[0] - slideOffset * (getScreenWidth() / 2f - layout2.getWidth() / 2f));
+        layout3.setX(layout3_loc[0] - slideOffset * (getScreenWidth() / 2f - layout3.getWidth() / 2f));
+        layout3.setY(layout3_loc[1] - slideOffset * 150);
+    }
+
+    @Override
+    public void onPanelStateChanged(View panel, SlidingUpPanelLayout.PanelState previousState, SlidingUpPanelLayout.PanelState newState) {
+
+    }
+
+    @Override
     public void onLocationChanged(Location location) {
-        Geocoder geocoder = new Geocoder(this, Locale.getDefault());
-        List<Address> addresses = null;
-        try {
-            addresses = geocoder.getFromLocation(location.getLatitude(), location.getLongitude(), 1);
-            cityName = addresses.get(0).getLocality();
-            cityTV.setText(cityName);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        fetchForecastData(location);
     }
 
     @Override
@@ -213,11 +299,10 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
 
     @Override
     public void onProviderEnabled(String provider) {
-
+        checkLocationPermission();
     }
 
     @Override
     public void onProviderDisabled(String provider) {
-
     }
 }
