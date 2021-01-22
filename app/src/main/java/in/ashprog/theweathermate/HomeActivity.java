@@ -206,6 +206,7 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
             Toast.makeText(this, "Please enable the location services.", Toast.LENGTH_SHORT).show();
         } else {
             locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000, 10, locationListener);
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 10, locationListener);
         }
     }
 
@@ -270,6 +271,10 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
         DisplayMetrics displayMetrics = new DisplayMetrics();
         getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
         return displayMetrics.widthPixels;
+    }
+
+    public void menu(View view) {
+        Toast.makeText(this, "Navigation Drawer will be added soon....", Toast.LENGTH_SHORT).show();
     }
 
     @Override
