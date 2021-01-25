@@ -55,8 +55,7 @@ import in.ashprog.theweathermate.ForecastModel.Hour;
 
 public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLayout.PanelSlideListener, LocationListener {
 
-    private static String latLong = "25.4358,81.8463";
-    private static String API = "http://api.weatherapi.com/v1/forecast.json?key=81fe6ba1f71e48dabc9120751212201&q=" + latLong + "&days=1";
+    private static String[] API = {"http://api.weatherapi.com/v1/forecast.json?key=81fe6ba1f71e48dabc9120751212201&q=", "&days=1"};
 
     LocationManager locationManager;
     LocationListener locationListener;
@@ -222,8 +221,8 @@ public class HomeActivity extends AppCompatActivity implements SlidingUpPanelLay
     }
 
     void fetchForecastData(Location location) {
-        latLong = location.getLatitude() + "," + location.getLongitude();
-        StringRequest request = new StringRequest(Request.Method.GET, API, new Response.Listener<String>() {
+        String latLong = location.getLatitude() + "," + location.getLongitude();
+        StringRequest request = new StringRequest(Request.Method.GET, API[0] + latLong + API[1], new Response.Listener<String>() {
             @Override
             public void onResponse(String response) {
                 GsonBuilder builder = new GsonBuilder();
